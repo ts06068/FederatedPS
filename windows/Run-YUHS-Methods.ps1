@@ -120,7 +120,9 @@ try {
     $finishedAt=$null
     $marker=Join-Path $out 'baselines-complete.json'
     while($true){
-        Update-FederatedDbWatchdog $dbWatchdog $workers
+        # After parallel preparation, baselines only reads verified checkpoints.
+        # Site DB markers still belong to the finished extraction workers.
+        if($effectiveWorkers -eq 1){Update-FederatedDbWatchdog $dbWatchdog @($baselineWorker)}
         Update-FederatedMonitor $monitor $workers
         $worker=$baselineWorker;$worker.Process.Refresh()
         if($worker.Process.HasExited){Wait-FederatedWorkers $workers 10 $monitor;break}

@@ -43,7 +43,9 @@ function Start-FederatedRWorker {param($Runtime,$Script,$Arguments,$WorkingDirec
             @{runId=$mappedId;state='federated-mapped';sites=$c.sites} | ConvertTo-Json | Set-Content (Join-Path $c.output 'federated-mapped.json')
         }
     } else {throw 'Unexpected worker'}
-    $p=[pscustomobject]@{HasExited=$true};$p | Add-Member ScriptMethod Refresh {}
+    $coordinator=$Role -eq 'baselines' -and $c.extractionWorkers -gt 1
+    $p=[pscustomobject]@{Id=8001;HasExited=(-not $coordinator);Polls=0}
+    $p | Add-Member ScriptMethod Refresh { $this.Polls++; if($this.Polls -ge 2){$this.HasExited=$true} }
     [pscustomobject]@{Process=$p;Role=$Role;Fail=($c.study -eq 'fixtureNativeFail')}
 }
 function Wait-FederatedWorkers {param($Workers,$TimeoutSeconds,$Monitor)
@@ -75,6 +77,14 @@ function Invoke-FederatedSitePreparation {
     if($MaxWorkers -ne $c.extractionWorkers -or $MaxWorkers -lt 2 -or $MaxWorkers -gt 3 -or ($Sites -join ',') -ne ($c.sites -join ',')){throw 'Wrong extraction concurrency/sites'}
     if($c.study -eq 'fixturePreparationFail'){throw 'Site preparation failed'}
     Set-Content (Join-Path $RunDirectory 'prepared-sites.fixture') $MaxWorkers
+    # Even cache hits can leave completed SQL preparation markers from site workers.
+    foreach($site in $Sites){
+        $directory=Join-Path $RunDirectory "extraction/$site"
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        @{runId=$c.runId;site=$site;pid=9001;id='fixture';status='completed';
+          startedUtc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json |
+            Set-Content (Join-Path $directory 'sql-prepare-state.json')
+    }
 }
 '@ | Set-Content (Join-Path $temp 'SitePreparation.ps1')
     $run=Join-Path $temp 'Run-YUHS-Methods.ps1'
