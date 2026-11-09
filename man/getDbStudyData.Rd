@@ -21,7 +21,8 @@ also accepts \code{\link[DatabaseConnector:createDbiConnectionDetails]{DatabaseC
 \item{cdmDatabaseSchema}{Unquoted CDM schema name containing clinical and
 vocabulary tables. SQL Server also accepts \code{database.schema}.}
 
-\item{study}{Name from \code{\link[=listStudies]{listStudies()}}.}
+\item{study}{A preset from \code{\link[=listStudies]{listStudies()}} or a public study key from the
+bundled \code{studies/registry.json} for SQL Server.}
 
 \item{scenario}{Design from \code{\link[=getStudySettings]{getStudySettings()}}.}
 \item{careSiteId}{SQL Server institution ID from CARE_SITE, linked through
@@ -33,7 +34,7 @@ filters can leave fewer patients or an empty treatment arm.}
 }
 \value{
 Hospital-local \link[CohortMethod:CohortMethodData]{CohortMethod::CohortMethodData} for \code{\link[=fitPs]{fitPs()}}.
-Its \code{metaData} attribute contains \code{studyDefinition}, \code{resolvedIngredients}
+Its \code{metaData} attribute contains \code{studyDefinition}, resolved exposure concepts
 and the final cohort counts in \code{attrition}. No outcomes are extracted.
 The caller must close the object with \code{Andromeda::close()}.
 }
@@ -48,7 +49,9 @@ pooled drug eras. Explicit binary covariates use the care-site-binary-v1 contrac
 gender, five-year age groups, condition, drug, procedure and measurement occurrence.
 This feature ID scheme and exposure definition must not be mixed with PostgreSQL
 extracts in one model. Site metadata and record-linkage counts are returned in
-metaData. Native observation periods are retained. See windows/README_KO.md.
+metaData. Native observation periods are retained. Public CDM studies use the
+bundled Circe studySpecific cohorts, retain their index dates and require the
+selected index exposure to be linked to this site's visit. See windows/CDM_STUDIES_KO.md.
 
 The PostgreSQL path uses a dedicated connection and session-local tables/views; source
 CDM tables are not changed. CohortMethod's installed cohort SQL retains its

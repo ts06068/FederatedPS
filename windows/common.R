@@ -16,7 +16,7 @@ fp_verify_db_runtime_revision <- function(installedRevision = tryCatch(
 
 fp_verify_sql_plan_revision <- function(installedRevision = tryCatch(
         utils::getFromNamespace(".fpsSqlPlanRevision", "FederatedPs"), error=function(e) NULL)) {
-    if (!identical(installedRevision,"sql-plan-4"))
+    if (!identical(installedRevision,"sql-plan-5"))
         stop("Installed FederatedPs lacks the SQL preparation fix. Run 10_UPDATE_PACKAGE.ps1, then start a new R process.")
     invisible(TRUE)
 }
@@ -71,7 +71,7 @@ fp_verify_runtime <- function(project,
         fp_odbc_require(driver)
     }
     cat("PASS: offline R, block Cyclops, FederatedPs, SQL rendering JVM and", toupper(backend),
-        "[dbi-odbc-1; sql-plan-4]\n")
+        "[dbi-odbc-1; sql-plan-5]\n")
     invisible(TRUE)
 }
 

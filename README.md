@@ -170,6 +170,14 @@ sets these for the selected hospitals. All hospitals must use the same package
 version and study definition. The existing specification exchange also checks
 the study and scenario before optimization.
 
+### Windows YUHS public CDM comparisons
+
+The Windows SQL Server path also includes all 18 public comparisons from the
+FederatedPS dev catalog, in the `studySpecific` scenario. See
+[the pinned catalog](inst/studies/registry.json) and the
+[Windows batch guide](windows/CDM_STUDIES_KO.md). The batch runs the 18 public
+comparisons before all 13 presets, using `studySpecific` for all 31 comparisons.
+
 Available presets
 -----------------
 

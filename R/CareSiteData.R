@@ -116,24 +116,44 @@
     institution <- .careSiteIdMetadata(institution, careSiteId)
     .fpsSetClinicalNetworkTimeout(connection)
     .fpsDbStartupState("Connection self-check and CARE_SITE validation passed", ready = TRUE)
-    step(1, "Resolving study concept definitions")
-    execute("StudyConcepts.sql")
-    missing <- query(sprintf("SELECT r.ingredient_id FROM #fps_requested_ingredients r WHERE NOT EXISTS (
-        SELECT 1 FROM %s.CONCEPT c WHERE c.concept_id = r.ingredient_id
-        AND c.concept_class_id = 'Ingredient' AND c.vocabulary_id IN ('RxNorm', 'RxNorm Extension'))", schema))
-    missingAtc <- query("SELECT r.code FROM #fps_requested_atc r WHERE NOT EXISTS (
-        SELECT 1 FROM #fps_atc_ingredients i WHERE i.arm = r.arm AND i.code = r.code)")
-    if (nrow(missing) || nrow(missingAtc)) stop("Incomplete ingredient/ATC vocabulary definitions")
-    resolved <- query("SELECT arm, ingredient_id FROM #fps_ingredients ORDER BY arm, ingredient_id")
-    target <- resolved$ingredientId[resolved$arm == 1]
-    comparator <- resolved$ingredientId[resolved$arm == 0]
-    if (!length(target) || !length(comparator) || length(intersect(target, comparator)))
-        stop("Target and comparator must resolve to nonempty, disjoint ingredient sets")
-    step(1, "SitePartition.sql: study-exposed patients; exclude cross-site visits")
-    execute("SitePartition.sql")
-    if (identical(settings$scenario, "default") && patientLimit > 0L) {
-        step(1, paste("Applying the same default patient cap early:", patientLimit, "persons"))
-        execute("LimitPartitionPatients.sql")
+    publicCdm <- isTRUE(settings$publicCdm)
+    if (publicCdm) {
+        step(1, "Checking vocabulary for the public CDM study")
+        seedRows <- paste0("(", format(settings$seedConceptIds, scientific = FALSE, trim = TRUE), ")")
+        missing <- query(sprintf("SELECT r.concept_id FROM (VALUES %s) r(concept_id)
+            WHERE NOT EXISTS (SELECT 1 FROM %s.CONCEPT c WHERE c.concept_id = r.concept_id)",
+            paste(seedRows, collapse = ","), schema))
+        if (nrow(missing)) stop("Missing public CDM vocabulary seed(s): ", paste(missing$conceptId, collapse = ", "))
+        execute("PublicCohortsInit.sql")
+        step(1, "Generating the public target cohort")
+        execute("Public-target.sql")
+        step(1, "Generating the public comparator cohort")
+        execute("Public-comparator.sql")
+        resolved <- query("SELECT cohort_definition_id, concept_id FROM #fps_public_concepts
+            ORDER BY cohort_definition_id, concept_id")
+        if (!setequal(resolved$cohortDefinitionId, c(1, 2))) stop("An entry concept set resolved to no concepts")
+        step(1, "PublicSitePartition.sql: attribute index and exclude cross-site visits")
+        execute("PublicSitePartition.sql")
+    } else {
+        step(1, "Resolving study concept definitions")
+        execute("StudyConcepts.sql")
+        missing <- query(sprintf("SELECT r.ingredient_id FROM #fps_requested_ingredients r WHERE NOT EXISTS (
+            SELECT 1 FROM %s.CONCEPT c WHERE c.concept_id = r.ingredient_id
+            AND c.concept_class_id = 'Ingredient' AND c.vocabulary_id IN ('RxNorm', 'RxNorm Extension'))", schema))
+        missingAtc <- query("SELECT r.code FROM #fps_requested_atc r WHERE NOT EXISTS (
+            SELECT 1 FROM #fps_atc_ingredients i WHERE i.arm = r.arm AND i.code = r.code)")
+        if (nrow(missing) || nrow(missingAtc)) stop("Incomplete ingredient/ATC vocabulary definitions")
+        resolved <- query("SELECT arm, ingredient_id FROM #fps_ingredients ORDER BY arm, ingredient_id")
+        target <- resolved$ingredientId[resolved$arm == 1]
+        comparator <- resolved$ingredientId[resolved$arm == 0]
+        if (!length(target) || !length(comparator) || length(intersect(target, comparator)))
+            stop("Target and comparator must resolve to nonempty, disjoint ingredient sets")
+        step(1, "SitePartition.sql: study-exposed patients; exclude cross-site visits")
+        execute("SitePartition.sql")
+        if (identical(settings$scenario, "default") && patientLimit > 0L) {
+            step(1, paste("Applying the same default patient cap early:", patientLimit, "persons"))
+            execute("LimitPartitionPatients.sql")
+        }
     }
     step(1, "SiteVisits.sql: copying all visits of the prepared patients")
     execute("SiteVisits.sql")
@@ -143,7 +163,8 @@
         (SELECT COUNT_BIG(*) FROM #fps_person) AS prepared_persons,
         (SELECT COUNT_BIG(*) FROM #fps_visit) AS linked_visits")
     partition$earlyPatientLimit <- if (identical(settings$scenario, "default")) patientLimit else 0L
-    partition$auditScope <- "study-exposed candidates; prepared persons after exclusivity and any early default cap"
+    partition$auditScope <- if (publicCdm) "Circe-eligible first untied index linked to site; exclusive persons"
+        else "study-exposed candidates; prepared persons after exclusivity and any early default cap"
     # Do not fabricate whole-CDM audit totals: collecting them was another
     # full-table scan, unrelated to this study's extraction or patient cap.
     partition$multisitePersonsAllCdm <- NA_real_
@@ -163,15 +184,17 @@
         data.frame(table = table, counts, auditScope = partition$auditScope)
     }))
     specific <- settings$scenario == "studySpecific"
-    step(4, "Fetching study drugs for prepared site patients")
-    execute("StudyDrugs.sql")
-    step(5, "Building study exposures")
-    if (specific) {
-        roots <- query(sprintf("SELECT concept_id FROM %s.CONCEPT WHERE domain_id = 'Condition'
-            AND standard_concept = 'S' AND concept_id IN (%s)", schema, paste(settings$indicationConceptIds, collapse = ",")))
-        if (!setequal(roots$conceptId, settings$indicationConceptIds)) stop("Missing indication concepts")
-        execute("SpecificStudy.sql")
-    } else execute("DefaultStudy.sql")
+    if (!publicCdm) {
+        step(4, "Fetching study drugs for prepared site patients")
+        execute("StudyDrugs.sql")
+        step(5, "Building study exposures")
+        if (specific) {
+            roots <- query(sprintf("SELECT concept_id FROM %s.CONCEPT WHERE domain_id = 'Condition'
+                AND standard_concept = 'S' AND concept_id IN (%s)", schema, paste(settings$indicationConceptIds, collapse = ",")))
+            if (!setequal(roots$conceptId, settings$indicationConceptIds)) stop("Missing indication concepts")
+            execute("SpecificStudy.sql")
+        } else execute("DefaultStudy.sql")
+    }
     if (patientLimit > 0L) {
         step(5, paste("Limiting exposure candidates to", patientLimit, "persons before CohortMethod"))
         execute("LimitPatients.sql")
@@ -213,8 +236,12 @@
     data$cohorts <- cohorts
     data$outcomes <- data.frame(rowId = numeric(), outcomeId = numeric(), daysToEvent = numeric())
     # Shared model contract must not include an institution's ID or name.
-    settings$definitionVersion <- 2L
-    settings$exposureSource <- "visit-linked drug_exposure (not pooled drug_era)"
+    if (publicCdm) {
+        settings$exposureSource <- "pinned dev Circe studySpecific cohorts, index linked to YUHS visit"
+    } else {
+        settings$definitionVersion <- 2L
+        settings$exposureSource <- "visit-linked drug_exposure (not pooled drug_era)"
+    }
     settings$featureDefinition <- "care-site-binary-v1"
     settings$partitionPolicy <- "exclude persons visiting multiple positive care_site_ids"
     attr(data, "metaData") <- list(targetId = 1, comparatorId = 2, studyDefinition = settings,
@@ -224,6 +251,10 @@
         recordLinkage = linkage, attrition = data.frame(description = "Site-local study-eligible subjects",
             targetPersons = counts[1], comparatorPersons = counts[2],
             targetExposures = counts[1], comparatorExposures = counts[2]))
+    if (publicCdm) {
+        attr(data, "metaData")$resolvedIngredients <- NULL
+        attr(data, "metaData")$resolvedIndexConcepts <- resolved
+    }
     class(data) <- "CohortMethodData"
     attr(class(data), "package") <- "CohortMethod"
     complete <- TRUE

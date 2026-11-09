@@ -1,11 +1,12 @@
 # Render and split every clinical SQL template BEFORE opening a JDBC session.
 # No database state is needed: concepts are resolved later by the prepared SQL.
-.fpsSqlPlanRevision <- "sql-plan-4"
+.fpsSqlPlanRevision <- "sql-plan-5"
 
 .fpsPrepareCareSiteSqlPlan <- function(schema, settings, careSiteId, patientLimit = 0L,
         templateRoot = system.file("sql", "sql_server", package = "FederatedPs"),
         render = SqlRender::render, split = SqlRender::splitSql,
-        cohort = SqlRender::loadRenderTranslateSql) {
+        cohort = SqlRender::loadRenderTranslateSql,
+        studyAssetRoot = NULL) {
     .validateCdmSchema(schema)
     careSiteId <- .validateCareSiteId(careSiteId)
     patientLimit <- .validatePatientLimit(patientLimit)
@@ -20,8 +21,7 @@
         batches[[name]] <<- list(sql = sql, statements = statements)
         .fpsDiagnosticWrite(paste0("prepared-", gsub("[^A-Za-z0-9_.-]", "-", name), ".sql"), sql)
     }
-    prepare <- function(file, ...) {
-        path <- file.path(templateRoot, file)
+    prepare <- function(file, ..., path = file.path(templateRoot, file)) {
         sql <- paste(readLines(path, warn = FALSE), collapse = "\n")
         # Give SqlRender only the parameters present in this template. This
         # avoids unrelated missing-parameter warnings from the previous helper.
@@ -32,41 +32,54 @@
             do.call(render, c(list(sql = sql), parameters)), stage = "sql-prepare")
         add(file, rendered)
     }
-    ingredients <- list("1" = settings$targetIngredients, "0" = settings$comparatorIngredients)
-    atc <- list("1" = settings$targetAtc, "0" = settings$comparatorAtc)
-    if (specific) {
-        ingredients[["-1"]] <- unique(c(unlist(ingredients), settings$extraWashoutIngredients))
-        atc[["-1"]] <- unique(c(unlist(atc), settings$washoutAtc))
+    publicCdm <- isTRUE(settings$publicCdm)
+    if (publicCdm) {
+        if (is.null(studyAssetRoot)) studyAssetRoot <- .fpsStudyAssetRoot()
+        prepare("PublicCohortsInit.sql")
+        for (arm in c("target", "comparator")) {
+            path <- file.path(studyAssetRoot, "sql_server", settings$study, paste0(arm, ".sql"))
+            prepare(paste0("Public-", arm, ".sql"), path = path)
+        }
+        prepare("PublicSitePartition.sql")
+        prepare("SiteVisits.sql")
+    } else {
+        ingredients <- list("1" = settings$targetIngredients, "0" = settings$comparatorIngredients)
+        atc <- list("1" = settings$targetAtc, "0" = settings$comparatorAtc)
+        if (specific) {
+            ingredients[["-1"]] <- unique(c(unlist(ingredients), settings$extraWashoutIngredients))
+            atc[["-1"]] <- unique(c(unlist(atc), settings$washoutAtc))
+        }
+        values <- function(groups, quote = FALSE) {
+            rows <- unlist(lapply(names(groups), function(arm) {
+                ids <- groups[[arm]]
+                if (!length(ids)) return(character())
+                ids <- if (quote) paste0("'", ids, "'") else format(ids, scientific = FALSE, trim = TRUE)
+                paste0("(", arm, ", ", ids, ")")
+            }), use.names = FALSE)
+            if (!length(rows)) return(if (quote) "(1, '')" else "(1, 0)")
+            paste(rows, collapse = ", ")
+        }
+        prepare("StudyConcepts.sql", ingredient_rows = values(ingredients), atc_rows = values(atc, TRUE))
+        prepare("SitePartition.sql")
+        if (length(batches[["SitePartition.sql"]]$statements) != 4L)
+            stop("SitePartition must contain four prepared statements")
+        if (!specific && patientLimit > 0L) prepare("LimitPartitionPatients.sql", patient_limit = patientLimit)
+        prepare("SiteVisits.sql")
+        prepare("StudyDrugs.sql")
+        if (specific) prepare("SpecificStudy.sql", form_policy = settings$formPolicy,
+            indication_concept_ids = settings$indicationConceptIds,
+            record_type_concept_ids = settings$recordTypeConceptIds, min_age = settings$minAge,
+            prior_days = settings$priorObservationDays, indication_days = settings$indicationDays,
+            washout_days = settings$washoutDays) else prepare("DefaultStudy.sql")
     }
-    values <- function(groups, quote = FALSE) {
-        rows <- unlist(lapply(names(groups), function(arm) {
-            ids <- groups[[arm]]
-            if (!length(ids)) return(character())
-            ids <- if (quote) paste0("'", ids, "'") else format(ids, scientific = FALSE, trim = TRUE)
-            paste0("(", arm, ", ", ids, ")")
-        }), use.names = FALSE)
-        if (!length(rows)) return(if (quote) "(1, '')" else "(1, 0)")
-        paste(rows, collapse = ", ")
-    }
-    prepare("StudyConcepts.sql", ingredient_rows = values(ingredients), atc_rows = values(atc, TRUE))
-    prepare("SitePartition.sql")
-    if (length(batches[["SitePartition.sql"]]$statements) != 4L)
-        stop("SitePartition must contain four prepared statements")
-    if (!specific && patientLimit > 0L) prepare("LimitPartitionPatients.sql", patient_limit = patientLimit)
-    prepare("SiteVisits.sql")
-    prepare("StudyDrugs.sql")
-    if (specific) prepare("SpecificStudy.sql", form_policy = settings$formPolicy,
-        indication_concept_ids = settings$indicationConceptIds,
-        record_type_concept_ids = settings$recordTypeConceptIds, min_age = settings$minAge,
-        prior_days = settings$priorObservationDays, indication_days = settings$indicationDays,
-        washout_days = settings$washoutDays) else prepare("DefaultStudy.sql")
     if (patientLimit > 0L) prepare("LimitPatients.sql", patient_limit = patientLimit)
     sql <- .fpsDbOperation("Rendering CohortMethod CreateOrCountCohorts.sql before DB connection",
         cohort("CreateOrCountCohorts.sql", packageName = "CohortMethod", dbms = "sql server",
             cdm_database_schema = schema, exposure_database_schema = "tempdb.dbo",
             exposure_table = "#fps_exposure", target_id = 1, comparator_id = 2, first_only = TRUE,
             remove_duplicate_subjects = "keep first, truncate to second",
-            washout_period = settings$priorObservationDays, min_age = if (specific) "" else settings$minAge,
+            washout_period = if (publicCdm) 0L else settings$priorObservationDays,
+            min_age = if (specific) "" else settings$minAge,
             restrict_to_common_period = FALSE, action = "CREATE"), stage = "sql-prepare")
     add("CohortMethod CreateOrCountCohorts.sql", .fpsUppercaseCohortTables(sql, schema))
     sql <- .fpsDbOperation("Rendering CohortMethod GetCohorts.sql before DB connection",
@@ -75,7 +88,8 @@
     add("CohortMethod GetCohorts.sql", sql)
     if (length(batches[["CohortMethod GetCohorts.sql"]]$statements) != 1L)
         stop("Cohort fetch must be one prepared SELECT")
-    prepare("Covariates.sql", clinical_sql = .careSiteClinicalSql(schema, settings))
+    prepare("Covariates.sql", clinical_sql = .careSiteClinicalSql(schema, settings),
+        public_cdm = as.integer(publicCdm))
     plan <- list(revision = .fpsSqlPlanRevision, schema = schema, settings = settings,
         careSiteId = careSiteId, patientLimit = patientLimit, batches = batches)
     .fpsProgress("sql-ready", paste("Prepared", length(batches), "SQL files for site_id", careSiteId,

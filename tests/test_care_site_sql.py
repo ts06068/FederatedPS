@@ -23,6 +23,12 @@ SQL = ROOT / "inst/sql/sql_server"
 def render(file, **params):
     text = (SQL / file).read_text()
     params = {"cdm_database_schema": "cdm", **params}
+    if file == "Covariates.sql":
+        public = bool(params.pop("public_cdm", 0))
+        text = text.replace("{DEFAULT @public_cdm = 0}", "")
+        text = re.sub(r"\{@public_cdm (==|!=) 0\}\?\{(.*?)\}",
+                      lambda match: match[2] if (match[1] == "!=") == public else "",
+                      text, flags=re.S)
     return re.sub(r"@(\w+)", lambda m: str(params[m[1]]), text)
 
 

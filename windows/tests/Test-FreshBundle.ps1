@@ -5,48 +5,15 @@ $fresh=Join-Path $project 'windows/fresh'
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('fps-fresh-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temp | Out-Null
 try {
-    # RUN forwards the exact requested options and never starts analysis after a failed local check.
-    Copy-Item (Join-Path $fresh 'RUN.ps1') $temp
+    # The real batch launcher is covered in Test-OdbcRunRouting/Test-AllStudies.
     Copy-Item (Join-Path $fresh '04_TEST_SYNTHETIC.ps1') $temp
     Copy-Item (Join-Path $fresh '05_RUN_YUHS.ps1') $temp
     New-Item -ItemType Directory -Path (Join-Path $temp 'FederatedPS/windows') -Force | Out-Null
     @'
-param($InstallRoot)
-if($global:FailFreshCheck){throw 'fixture render hang'}
-$global:FreshCalls.Add('render-check')
-'@ | Set-Content (Join-Path $temp '03_VERIFY_RUNTIME.ps1')
-    @'
-param($InstallRoot,[bool]$Test,$Study,$Scenario,$Methods,$PatientLimits,$ExtractionWorkers,$StatusSeconds)
-$global:FreshCalls.Add('analysis')
-[pscustomobject]@{root=$InstallRoot;test=$Test;study=$Study;scenario=$Scenario;methods=$Methods;limits=$PatientLimits;workers=$ExtractionWorkers;status=$StatusSeconds}
+param($InstallRoot,[bool]$Test,$Study,$Scenario,$Methods)
+[pscustomobject]@{root=$InstallRoot;test=$Test;study=$Study;scenario=$Scenario;methods=$Methods}
 '@ | Set-Content (Join-Path $temp 'FederatedPS/windows/Run-YUHS.ps1')
-    @'
-param($InstallRoot)
-$global:FreshCalls.Add('package-update')
-if($global:FailFreshUpdate){throw 'fixture package update failure'}
-'@ | Set-Content (Join-Path $temp '10_UPDATE_PACKAGE.ps1')
-    $global:FailFreshUpdate=$false
     $global:FreshCalls=New-Object 'System.Collections.Generic.List[string]'
-    $global:FailFreshCheck=$false
-    $result=& (Join-Path $temp 'RUN.ps1') -InstallRoot 'fixture-root'
-    if (($global:FreshCalls -join ',') -ne 'render-check,analysis' -or $result.test -or
-        $result.study -ne 'ppi' -or $result.scenario -ne 'default' -or
-        ($result.methods -join ',') -ne 'local-only,pooled' -or $result.workers -ne 1 -or $result.status -ne 10 -or
-        $result.limits[1] -ne 2 -or $result.limits[2] -ne 2 -or $result.limits[3] -ne 2 -or $result.root -ne 'fixture-root') {
-        throw 'RUN options/order changed.'
-    }
-    $custom=& (Join-Path $temp 'RUN.ps1') -PatientLimits @{1=20;2=10;3=30}
-    if($custom.limits[1] -ne 20 -or $custom.limits[2] -ne 10 -or $custom.limits[3] -ne 30){throw 'Per-site override lost'}
-    $global:FreshCalls.Clear()
-    & (Join-Path $temp 'RUN.ps1') -UpdatePackage | Out-Null
-    if(($global:FreshCalls -join ',') -ne 'package-update,render-check,analysis'){throw 'UpdatePackage order changed'}
-    $global:FreshCalls.Clear();$global:FailFreshUpdate=$true
-    $caught=$false;try{& (Join-Path $temp 'RUN.ps1') -UpdatePackage | Out-Null}catch{$caught=$true}
-    if(-not $caught -or ($global:FreshCalls -join ',') -ne 'package-update'){throw 'Failed update did not stop RUN'}
-    $global:FailFreshUpdate=$false
-    $global:FreshCalls.Clear();$global:FailFreshCheck=$true
-    $caught=$false;try { & (Join-Path $temp 'RUN.ps1') | Out-Null } catch { $caught=$true }
-    if(-not $caught -or $global:FreshCalls.Count){throw 'Failed rendering did not stop RUN.'}
     $global:FailFreshCheck=$false
     $synthetic=& (Join-Path $temp '04_TEST_SYNTHETIC.ps1')
     if(-not $synthetic.test -or ($synthetic.methods -join ',') -ne 'local-only,pooled'){throw 'Synthetic route touched real DB mode.'}
@@ -164,7 +131,7 @@ function Start-FederatedRWorker {
         if(-not $caught){throw "Rendering timeout did not stop the preflight: $failureText"}
         if(Get-Process -Id $global:FreshOwnedPid -ErrorAction SilentlyContinue){throw 'Timed-out preflight child still running.'}
     } finally { $env:JAVA_HOME=$savedJava }
-    Write-Host 'PASS: fresh setup/failure gating, RUN options, synthetic isolation, SSL config, safe paths, diagnostic allowlist, owned preflight timeout cleanup.'
+    Write-Host 'PASS: fresh setup/failure gating, synthetic isolation, SSL config, safe paths, diagnostic allowlist, owned preflight timeout cleanup.'
 } finally {
     Remove-Item -LiteralPath $temp -Recurse -Force
     Remove-Variable FreshCalls,FailFreshCheck,FailFreshStage,FreshOwnedPid -Scope Global -ErrorAction SilentlyContinue

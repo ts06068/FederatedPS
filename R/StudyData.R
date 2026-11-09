@@ -5,7 +5,8 @@
 #'   also accepts [DatabaseConnector::createDbiConnectionDetails()] with ODBC.
 #' @param cdmDatabaseSchema Unquoted CDM schema name containing clinical and
 #'   vocabulary tables. SQL Server also accepts `database.schema`.
-#' @param study Name from [listStudies()].
+#' @param study A preset from [listStudies()] or a public study key from the
+#'   bundled `studies/registry.json` for SQL Server.
 #' @param scenario Design from [getStudySettings()].
 #' @param careSiteId SQL Server institution ID from `CARE_SITE`, linked through
 #'   `VISIT_OCCURRENCE`. Required on SQL Server; leave `NULL` on PostgreSQL.
@@ -14,7 +15,7 @@
 #'   Deterministic, approximately arm-balanced exposure candidates are selected.
 #'   Later eligibility filters can leave fewer patients or an empty arm.
 #' @return Hospital-local [CohortMethod::CohortMethodData] for [fitPs()].
-#'   Its `metaData` attribute contains `studyDefinition`, `resolvedIngredients`
+#'   Its `metaData` attribute contains `studyDefinition`, resolved exposure concepts
 #'   and the final cohort counts in `attrition`. No outcomes are extracted.
 #'   The caller must close the object with `Andromeda::close()`.
 #' @details On SQL Server, persons with visits at multiple positive care-site
@@ -24,7 +25,9 @@
 #'   condition/drug/procedure/measurement occurrences. Its feature IDs and
 #'   exposure definition must not be mixed with PostgreSQL extracts in a model.
 #'   Site linkage counts are retained in metadata; native observation periods
-#'   are not recomputed. See `windows/README_KO.md` for the full contract.
+#'   are not recomputed. Public CDM studies retain the bundled Circe cohort's
+#'   index date and require it to link to an exposure visit at this site.
+#'   See `windows/CDM_STUDIES_KO.md`.
 #'
 #'   The PostgreSQL path uses a dedicated connection and session-local tables/views; source
 #'   CDM tables are not changed. CohortMethod's installed cohort SQL retains its
@@ -46,6 +49,9 @@ getDbStudyData <- function(connectionDetails, cdmDatabaseSchema, study = "opioid
     patientLimit <- .validatePatientLimit(patientLimit)
     settings <- getStudySettings(study, scenario)
     .validateCdmSchema(cdmDatabaseSchema)
+    if (isTRUE(settings$publicCdm) && !identical(connectionDetails$dbms, "sql server")) {
+        stop("The bundled public CDM studies use the Windows SQL Server care-site path")
+    }
     sqlPlan <- if (identical(connectionDetails$dbms, "sql server"))
         .fpsGetCareSiteSqlPlan(cdmDatabaseSchema, settings, careSiteId, patientLimit) else NULL
     .fpsDbStartupState("Opening database connection")

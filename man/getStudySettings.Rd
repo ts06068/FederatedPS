@@ -7,7 +7,8 @@
 getStudySettings(study = "opioid", scenario = c("default", "studySpecific"))
 }
 \arguments{
-\item{study}{Name from \code{\link[=listStudies]{listStudies()}}.}
+\item{study}{A preset from \code{\link[=listStudies]{listStudies()}} or a Windows public study key
+from the bundled \code{studies/registry.json}.}
 
 \item{scenario}{\code{"default"} for the common first-recorded-use design or
 \code{"studySpecific"} for the study's indication, observation, washout and
@@ -21,6 +22,8 @@ sets are resolved against each hospital's vocabulary by \code{\link[=getDbStudyD
 Get the definition of a named study
 }
 \details{
+Public CDM studies use their bundled Circe definitions and accept only
+\code{studySpecific}. The following rules apply to the built-in presets.
 Both scenarios require age 18 or older and a native observation
 period containing index. \code{default} uses the first recorded drug era,
 covariates on days -90 through -1, and no prior-observation or drug-free

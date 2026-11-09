@@ -18,6 +18,11 @@ fp_data_contract <- function(config, runtimeVersions = NULL, site = NULL) {
     files <- c(files, paste0("inst/sql/sql_server/", list.files(file.path(project,"inst/sql/sql_server"))))
     if (isTRUE(config$test)) files <- c(files, paste0("inst/extdata/yuhs-synthetic/",
         list.files(file.path(project,"inst/extdata/yuhs-synthetic"))))
+    if (grepl("^(ohdsi|pl)_", config$study)) {
+        files <- c(files, "inst/studies/registry.json",
+            file.path("inst/studies/cohorts", config$study, paste0("studySpecific_", c("target", "comparator"), ".json")),
+            file.path("inst/studies/sql_server", config$study, paste0(c("target", "comparator"), ".sql")))
+    }
     files <- sort(unique(files))
     hashes <- tools::md5sum(file.path(project, files))
     if (anyNA(hashes)) stop("Cannot fingerprint extraction sources")

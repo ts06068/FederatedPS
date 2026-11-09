@@ -1,12 +1,15 @@
 #' Get the definition of a named study
 #'
-#' @param study Name from [listStudies()].
+#' @param study A preset from [listStudies()] or a Windows public study key
+#'   from the bundled `studies/registry.json`.
 #' @param scenario `"default"` for the common first-recorded-use design or
 #'   `"studySpecific"` for the study's indication, observation, washout and
 #'   product restrictions.
 #' @return A list describing the exposure and covariate definitions. Concept
 #'   sets are resolved against each hospital's vocabulary by [getDbStudyData()].
-#' @details Both scenarios require age 18 or older and a native observation
+#' @details Public CDM studies use their bundled Circe definitions and accept
+#'   only `studySpecific`. The following rules apply to the built-in presets.
+#'   Both scenarios require age 18 or older and a native observation
 #'   period containing index. `default` uses the first recorded drug era,
 #'   covariates on days -90 through -1, and no prior-observation or drug-free
 #'   requirement. `studySpecific` uses the first eligible drug exposure and
@@ -16,6 +19,10 @@
 #' @export
 getStudySettings <- function(study = "opioid", scenario = c("default", "studySpecific")) {
     scenario <- match.arg(scenario)
+    if (is.character(study) && length(study) == 1L && !is.na(study) &&
+        grepl("^(ohdsi|pl)_[a-z0-9_]+$", study)) {
+        return(.fpsPublicStudySettings(study, scenario))
+    }
     studies <- .studyDefinitions()
     if (length(study) != 1L || is.na(study) || !study %in% names(studies)) {
         stop("Unknown study; use listStudies() for available names")

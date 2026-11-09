@@ -1,11 +1,17 @@
+{DEFAULT @public_cdm = 0}
 -- Explicit binary feature contract; no unfiltered feature query can cross a site.
 SELECT c.subject_id, MIN(e.covariate_cutoff) AS covariate_cutoff INTO #fps_cutoff
 FROM #cohort_person c JOIN #fps_exposure e ON e.subject_id = c.subject_id
     AND e.cohort_start_date = c.cohort_start_date AND e.cohort_definition_id = c.cohort_definition_id
 GROUP BY c.subject_id;
+{@public_cdm == 0}?{
 SELECT ingredient_id AS concept_id INTO #fps_excluded FROM #fps_ingredients WHERE arm >= 0
 UNION SELECT ca.descendant_concept_id FROM @cdm_database_schema.CONCEPT_ANCESTOR ca
     JOIN #fps_ingredients i ON i.ingredient_id = ca.ancestor_concept_id WHERE i.arm >= 0;
+}
+{@public_cdm != 0}?{
+SELECT DISTINCT concept_id INTO #fps_excluded FROM #fps_public_concepts;
+}
 
 SELECT row_id, covariate_id, covariate_value INTO #fps_covariates FROM (
     SELECT c.row_id, CAST(p.gender_concept_id AS BIGINT) * 1000 + 1 AS covariate_id,
