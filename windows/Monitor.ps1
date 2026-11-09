@@ -48,6 +48,20 @@ function New-FederatedMonitor {
     param([string]$RunDirectory, [string[]]$Roles, [switch]$NoProgress,
           [switch]$ReadOnly, [int]$StatusSeconds=15,
           [string[]]$Sites=@(), $SiteLabels=$null)
+    $studyContext=''
+    $runConfig=Join-Path $RunDirectory 'run.json'
+    if(Test-Path -LiteralPath $runConfig -PathType Leaf){
+        try {
+            $config=Get-Content -LiteralPath $runConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+            if($config.study -is [string] -and $config.study -cmatch '\A[A-Za-z0-9_.-]+\z'){
+                $studyContext="Study: $($config.study)"
+                if($config.scenario -cin @('default','studySpecific')){
+                    $studyContext+=" | $($config.scenario)"
+                }
+            }
+        } catch { } # Older/incomplete run metadata must not prevent monitoring.
+    }
+    $activity=if($studyContext){"FederatedPS | $studyContext"}else{'FederatedPS - overall duration unknown'}
     $siteStates=@()
     foreach($site in $Sites) {
         if($site -notmatch '^[0-9]+$'){throw 'Monitor site IDs must be numeric.'}
@@ -70,6 +84,7 @@ function New-FederatedMonitor {
     }
     [pscustomobject]@{ Root=$RunDirectory; States=$states; SiteStates=$siteStates; Started=[DateTime]::UtcNow;
         LastRefresh=[DateTime]::MinValue; LastStatus=[DateTime]::MinValue;
+        StudyContext=$studyContext; Activity=$activity;
         NoProgress=$NoProgress.IsPresent; ReadOnly=$ReadOnly.IsPresent; StatusSeconds=$StatusSeconds; Disabled=$false }
 }
 function Write-FederatedMonitorLine($Monitor, [string]$Line) {
@@ -308,12 +323,15 @@ function Update-FederatedMonitor {
         }
         $now=[DateTime]::UtcNow
         if ($statusDue) {
-            Write-FederatedMonitorLine $Monitor "Elapsed=$(Get-FederatedElapsedSeconds $now $Monitor.Started)s; overall ETA unknown. Alive/CPU/log age do not prove SQL is advancing."
+            $summary="Elapsed=$(Get-FederatedElapsedSeconds $now $Monitor.Started)s; overall ETA unknown. Alive/CPU/log age do not prove SQL is advancing."
+            if($Monitor.StudyContext){$summary="$($Monitor.StudyContext) | $summary"}
+            Write-FederatedMonitorLine $Monitor $summary
             $Monitor.LastStatus=$now
         }
         if (-not $Monitor.NoProgress) {
-            Write-Progress -Id 100 -Activity 'FederatedPS - overall duration unknown' `
-                -Status "$finished/$($Monitor.States.Count) processes exited; elapsed=$(Get-FederatedElapsedSeconds $now $Monitor.Started)s" `
+            $status="$finished/$($Monitor.States.Count) processes exited; elapsed=$(Get-FederatedElapsedSeconds $now $Monitor.Started)s"
+            if($Monitor.StudyContext){$status+='; overall ETA unknown'}
+            Write-Progress -Id 100 -Activity $Monitor.Activity -Status $status `
                 -PercentComplete -1 -SecondsRemaining -1
         }
     } catch {
@@ -325,5 +343,5 @@ function Complete-FederatedMonitor($Monitor) {
     if ($null -eq $Monitor -or $Monitor.NoProgress) { return }
     for($i=1;$i -le $Monitor.States.Count;$i++) { Write-Progress -Id (100+$i) -Activity $Monitor.States[$i-1].Role -Completed }
     for($i=1;$i -le $Monitor.SiteStates.Count;$i++) { Write-Progress -Id (200+$i) -Activity ('site_id='+$Monitor.SiteStates[$i-1].Id) -Completed }
-    Write-Progress -Id 100 -Activity 'FederatedPS' -Completed
+    Write-Progress -Id 100 -Activity $Monitor.Activity -Completed
 }

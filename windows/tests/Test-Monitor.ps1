@@ -126,6 +126,31 @@ $before=@(Get-ChildItem $root -File -Recurse | ForEach-Object { (Get-FileHash $_
 $after=@(Get-ChildItem $root -File -Recurse | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
 if($before -cne $after) {throw 'Read-only watcher modified run files.'}
 
+# A newly attached viewer and the main launcher get the same study header
+# from run.json, even before a site worker writes a progress event.
+& {
+    $expected='FederatedPS | Study: ohdsi_htn_acei_thiazide | studySpecific'
+    $header=New-Object 'System.Collections.Generic.List[string]'
+    function Write-Progress {
+        param($Id,$ParentId,$Activity,$Status,$CurrentOperation,$PercentComplete,$SecondsRemaining,[switch]$Completed)
+        if($Id -eq 100){$header.Add($Activity)}
+    }
+    @{study='ohdsi_htn_acei_thiazide';scenario='studySpecific'} |
+        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'run.json') -Encoding UTF8
+    $studyMonitor=New-FederatedMonitor $root @('site1')
+    Update-FederatedMonitor $studyMonitor -Force
+    Complete-FederatedMonitor $studyMonitor
+    if($studyMonitor.Disabled -or $header.Count -ne 2 -or
+       @($header | Where-Object {$_ -cne $expected}).Count){
+        throw 'Study context was not displayed in the overall progress header.'
+    }
+    $plain=Get-Content -LiteralPath (Join-Path $root 'monitor.log') -Raw -Encoding UTF8
+    if($plain -notmatch 'Study: ohdsi_htn_acei_thiazide \| studySpecific \| Elapsed='){
+        throw 'Study context missing from the plain-text status.'
+    }
+}
+
+
 # Exercise the legacy-wrapper identity guard without needing CIM/Windows.
 # Only the OS/process boundaries are stubbed; use the actual watcher function.
 $watcherPath=Join-Path $PSScriptRoot '..\Watch-FederatedRun.ps1'

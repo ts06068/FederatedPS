@@ -21,7 +21,7 @@ dev의 PS 벤치마크용 `studySpecific` JSON을 사용함.
 
 ## 실행
 
-기존 Windows ODBC 번들에 CDM 업데이트 v0.0.15를 적용하고
+기존 Windows ODBC 번들에 CDM 업데이트 v0.0.16를 적용하고
 HIWARE에 로그인한 뒤 실행함.
 
 ```powershell
@@ -36,6 +36,8 @@ CDM 비교만 먼저 확인하려면 두 번째 명령에 `-Family Cdm`을 추�
 비교를 순차 실행함. 기본 환자 수 상한은 없으며, CDM 비교의 기관 동시
 실행 수는 1, preset은 3임. CDM 비교는 기관별 세션에서 동일한 코호트
 조건을 적용하므로 `-CdmExtractionWorkers 3`을 쓰면 DB 부하가 늘 수 있음.
+
+진행 상태의 상단과 주기적 경과 시간 줄에 현재 study와 scenario를 표시함.
 
 결과는 `FederatedPS\work\all-studies\<study>\<scenario>\<RunId>`에
 저장함. 각 조합 상태와 경로는 상위 폴더의 `batch-status.csv`에 기록함.
