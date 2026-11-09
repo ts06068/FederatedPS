@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('All','Cdm','Preset')][string]$Family='All',
+    [string[]]$Study=@(),
     [switch]$PlanOnly, [switch]$SkipSmd, [switch]$UpdatePackage,
     [string]$WorkDirectory='',
     [ValidateRange(0,2147483647)][int]$PatientLimit=0,

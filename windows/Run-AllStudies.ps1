@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('All','Cdm','Preset')][string]$Family='All',
+    [string[]]$Study=@(),
     [switch]$PlanOnly, [switch]$ExportSmd,
     [string]$WorkDirectory='',
     [ValidateRange(0,2147483647)][int]$PatientLimit=0,
@@ -18,11 +19,7 @@ param(
 $ErrorActionPreference='Stop'
 $project=Split-Path $PSScriptRoot -Parent
 $registry=Get-Content -LiteralPath (Join-Path $project 'inst/studies/registry.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-$presets=@(
-    'ppi','acid_suppression','class_ppi_h2ra','pantoprazole_lansoprazole',
-    'acetaminophen_ibuprofen','antiemetic','ondansetron_promethazine','ondansetron_prochlorperazine',
-    'opioid','oxycodone_hydromorphone','morphine_hydromorphone','laxative','statin'
-)
+$presets=@('opioid','ppi','statin')
 $plan=@(
     if($Family -ne 'Preset'){
         $ordered=@($registry | Where-Object sourceType -eq 'ohdsiStudy') +
@@ -34,13 +31,18 @@ $plan=@(
         }
     }
     if($Family -ne 'Cdm'){
-        foreach($study in $presets){
-            [pscustomobject]@{Study=$study;Scenario='studySpecific';Source='preset';Workers=$PresetExtractionWorkers}
+        foreach($preset in $presets){
+            [pscustomobject]@{Study=$preset;Scenario='studySpecific';Source='preset';Workers=$PresetExtractionWorkers}
         }
     }
 )
 if(@($plan | Group-Object Study,Scenario | Where-Object Count -ne 1).Count){
     throw 'Duplicate study/scenario in the batch plan.'
+}
+if($Study.Count){
+    $unknown=@($Study | Where-Object {$_ -cnotin $plan.Study})
+    if($unknown.Count){throw "Studies outside this plan: $($unknown -join ', ')."}
+    $plan=@($plan | Where-Object {$_.Study -cin $Study})
 }
 if($PlanOnly){$plan;return}
 
@@ -87,6 +89,7 @@ $runtimeArgs=@{InstallRoot=$InstallRoot;RHome=$RHome;JavaHome=$JavaHome}
 & (Join-Path $PSScriptRoot 'Test-OdbcConnection.ps1') -Project $project -ConfigDirectory $ConfigDirectory @runtimeArgs
 New-Item -ItemType Directory -Path $WorkDirectory -Force | Out-Null
 $report=Join-Path $WorkDirectory 'batch-status.csv'
+$timings=Join-Path $WorkDirectory 'batch-timing.csv'
 $failed=0
 for($i=0;$i -lt $plan.Count;$i++){
     $item=$plan[$i]
@@ -96,12 +99,16 @@ for($i=0;$i -lt $plan.Count;$i++){
     $state='reused'
     $smdState='not-requested'
     $message=''
+    $fitSeconds=$null
+    $smdSeconds=$null
+    $caseClock=[Diagnostics.Stopwatch]::StartNew()
     Write-Host "[$($i+1)/$($plan.Count)] $($item.Study)/$($item.Scenario)"
     try {
         if(-not $result){
             $runId=[guid]::NewGuid().ToString('N')
             $result=Join-Path $work $runId
             $state='failed'
+            $fitStart=$caseClock.Elapsed.TotalSeconds
             & (Join-Path $PSScriptRoot 'Run-YUHS-Methods.ps1') @runtimeArgs -DbBackend odbc -Test $false `
                 -Study $item.Study -Scenario $item.Scenario -Methods local-only,pooled -RunId $runId `
                 -PatientLimit $PatientLimit -PatientLimits $PatientLimits -ExtractionWorkers $item.Workers `
@@ -109,22 +116,34 @@ for($i=0;$i -lt $plan.Count;$i++){
                 -DbQueryTimeoutSeconds $DbQueryTimeoutSeconds -RunTimeoutSeconds $RunTimeoutSeconds
             if(-not (Test-Path -LiteralPath (Join-Path $result 'SUCCESS.txt'))){throw 'Missing successful fit marker.'}
             $state='complete'
+            $fitSeconds=[Math]::Round($caseClock.Elapsed.TotalSeconds-$fitStart,1)
         }
         if($ExportSmd){
             $smdState='failed'
+            $smdStart=$caseClock.Elapsed.TotalSeconds
             $runtime=Set-FederatedEnvironment @runtimeArgs
             Invoke-FederatedR $runtime.Rscript @((Join-Path $PSScriptRoot 'Export-StudySmd.R'),$result,$InstallRoot)
             $smdState='complete'
+            $smdSeconds=[Math]::Round($caseClock.Elapsed.TotalSeconds-$smdStart,1)
         }
     } catch {
         $failed++
         $message=$_.Exception.Message
         Write-Warning "$($item.Study)/$($item.Scenario): $message"
     }
+    $caseClock.Stop()
+    $totalSeconds=[Math]::Round($caseClock.Elapsed.TotalSeconds,1)
+    [pscustomobject]@{
+        Time=[DateTime]::Now.ToString('o'); Study=$item.Study; Scenario=$item.Scenario; Source=$item.Source
+        Workers=$item.Workers; Fit=$state; Smd=$smdState; FitSeconds=$fitSeconds
+        SmdSeconds=$smdSeconds; TotalSeconds=$totalSeconds; Directory=$result
+    } | Export-Csv -LiteralPath $timings -NoTypeInformation -Encoding UTF8 -Append
+    Write-Host "$($item.Study)/$($item.Scenario): fit=$state; SMD=$smdState; elapsed ${totalSeconds}s"
     [pscustomobject]@{
         Time=[DateTime]::Now.ToString('o'); Study=$item.Study; Scenario=$item.Scenario; Source=$item.Source
         Fit=$state; Smd=$smdState; Directory=$result; Error=$message
     } | Export-Csv -LiteralPath $report -NoTypeInformation -Encoding UTF8 -Append
 }
 Write-Host "Batch status: $report"
+Write-Host "Batch timing: $timings"
 if($failed){throw "$failed of $($plan.Count) combinations failed. See batch-status.csv for individual results."}

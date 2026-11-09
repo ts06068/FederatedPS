@@ -176,7 +176,7 @@ The Windows SQL Server path also includes all 18 public comparisons from the
 FederatedPS dev catalog, in the `studySpecific` scenario. See
 [the pinned catalog](inst/studies/registry.json) and the
 [Windows batch guide](windows/CDM_STUDIES_KO.md). The batch runs the 18 public
-comparisons before all 13 presets, using `studySpecific` for all 31 comparisons.
+comparisons before the `opioid`, `ppi`, and `statin` presets, using `studySpecific` for all 21 comparisons.
 
 Available presets
 -----------------

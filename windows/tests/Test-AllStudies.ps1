@@ -2,13 +2,20 @@
 $ErrorActionPreference='Stop'
 $project=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $plan=@(& (Join-Path $project 'windows/Run-AllStudies.ps1') -PlanOnly)
-if($plan.Count -ne 31 -or @($plan[0..13] | Where-Object Source -ne 'ohdsiStudy').Count -or
+if($plan.Count -ne 21 -or @($plan[0..13] | Where-Object Source -ne 'ohdsiStudy').Count -or
     @($plan[14..17] | Where-Object Source -ne 'phenotypeLibrary').Count -or
     @($plan | Where-Object Scenario -ne 'studySpecific').Count -or
-    @($plan[18..30] | Where-Object Source -ne 'preset').Count -or
-    @($plan[18..30] | Group-Object Study | Where-Object Count -ne 1).Count){
+    @($plan[18..20] | Where-Object Source -ne 'preset').Count -or
+    ($plan[18..20].Study -join ',') -cne 'opioid,ppi,statin'){
     throw 'Wrong catalog, scenario, or ordering.'
 }
+
+$selected=@(& (Join-Path $project 'windows/Run-AllStudies.ps1') -PlanOnly -Study ppi,ohdsi_htn_acei_arb)
+if(($selected.Study -join ',') -cne 'ohdsi_htn_acei_arb,ppi'){throw 'Study selection lost CDM-first order.'}
+$invalid=$false
+try { & (Join-Path $project 'windows/Run-AllStudies.ps1') -PlanOnly -Study antiemetic | Out-Null }
+catch {$invalid=$_.Exception.Message -match 'outside this plan'}
+if(-not $invalid){throw 'Study outside the 21-comparison plan was accepted.'}
 
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('fps-allstudies-'+[guid]::NewGuid().ToString('N'))
 try {
@@ -38,16 +45,21 @@ if($Study -eq 'pl_uti_fluoroquinolone_cephalosporin'){throw 'Fixture vocabulary 
     for($i=0;$i -lt 2;$i++){
         $caught=$false
         try { & $run -WorkDirectory $work -WarningAction SilentlyContinue }
-        catch {$caught=$_.Exception.Message -match '^1 of 31 combinations failed'}
+        catch {$caught=$_.Exception.Message -match '^1 of 21 combinations failed'}
         if(-not $caught){throw 'Expected only the simulated vocabulary failure.'}
     }
     $rows=@(Import-Csv (Join-Path $work 'batch-status.csv'))
-    if($rows.Count -ne 62 -or @($rows[0..30] | Where-Object Fit -eq 'complete').Count -ne 30 -or
-        @($rows[31..61] | Where-Object Fit -eq 'reused').Count -ne 30 -or
-        $rows[14].Fit -ne 'failed' -or $rows[30].Study -ne 'statin'){
+    if($rows.Count -ne 42 -or @($rows[0..20] | Where-Object Fit -eq 'complete').Count -ne 20 -or
+        @($rows[21..41] | Where-Object Fit -eq 'reused').Count -ne 20 -or
+        $rows[14].Fit -ne 'failed' -or $rows[20].Study -ne 'statin'){
         throw 'Batch continuation or successful-case reuse failed.'
     }
-    Write-Host 'PASS: 31 ordered jobs, vocabulary failure recorded, other jobs continued, 30 successes reused.'
+    $times=@(Import-Csv (Join-Path $work 'batch-timing.csv'))
+    if($times.Count -ne 42 -or $times[0].FitSeconds -eq '' -or $times[21].FitSeconds -ne '' -or
+        $times[0].Workers -ne '1' -or $times[18].Workers -ne '3'){
+        throw 'Per-case timing, worker count or reuse accounting failed.'
+    }
+    Write-Host 'PASS: 21 ordered jobs, vocabulary failure recorded, other jobs continued, 20 successes reused.'
 } finally {
     if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force}
 }

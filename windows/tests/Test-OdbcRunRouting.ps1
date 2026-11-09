@@ -7,8 +7,8 @@ try {
     New-Item -ItemType Directory -Path $target -Force | Out-Null
     Copy-Item (Join-Path $root 'fresh/RUN.ps1') $temp
     @'
-param($Family,[switch]$PlanOnly,[switch]$ExportSmd,$PatientLimits,$CdmExtractionWorkers)
-[pscustomobject]@{Family=$Family;Plan=$PlanOnly.IsPresent;Export=$ExportSmd.IsPresent;
+param($Family,[string[]]$Study,[switch]$PlanOnly,[switch]$ExportSmd,$PatientLimits,$CdmExtractionWorkers)
+[pscustomobject]@{Family=$Family;Study=$Study;Plan=$PlanOnly.IsPresent;Export=$ExportSmd.IsPresent;
     Limits=$PatientLimits;CdmWorkers=$CdmExtractionWorkers}
 '@ | Set-Content (Join-Path $target 'Run-AllStudies.ps1')
     @'
@@ -19,8 +19,8 @@ if(Test-Path (Join-Path $PSScriptRoot 'fail-update')){throw 'fixture update fail
     $run=Join-Path $temp 'RUN.ps1'
     $r=& $run
     if(-not $r.Export){throw 'RUN must export SMD by default.'}
-    $r=& $run -PlanOnly -UpdatePackage -Family Cdm -SkipSmd -PatientLimits @{2=100} -CdmExtractionWorkers 3
-    if(-not $r.Plan -or $r.Export -or $r.Family -ne 'Cdm' -or $r.Limits[2] -ne 100 -or
+    $r=& $run -PlanOnly -UpdatePackage -Family Cdm -Study ohdsi_htn_acei_arb -SkipSmd -PatientLimits @{2=100} -CdmExtractionWorkers 3
+    if(-not $r.Plan -or $r.Export -or $r.Family -ne 'Cdm' -or $r.Study[0] -ne 'ohdsi_htn_acei_arb' -or $r.Limits[2] -ne 100 -or
         $r.CdmWorkers -ne 3 -or (Test-Path (Join-Path $target 'updated'))){throw 'Wrong plan/override handling.'}
     & $run -UpdatePackage -InstallRoot fixture | Out-Null
     if((Get-Content (Join-Path $target 'updated')).Trim() -cne 'odbc/fixture'){throw 'Wrong update backend or install root.'}

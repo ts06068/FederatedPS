@@ -1,4 +1,4 @@
-# YUHS CDM 공개 코호트와 전체 preset 실행
+# YUHS CDM 공개 코호트와 선택 preset 실행
 
 Windows/ODBC 환경에 FederatedPS `dev` 커밋
 `2cb2ec905f51680b01e692230927e9efccc7a9c0`의 공개 비교 18개를 포함함.
@@ -9,7 +9,7 @@ Windows/ODBC 환경에 FederatedPS `dev` 커밋
 |---|---|---|---:|
 | 1 | 논문 기반 공개 비교 | studySpecific | 14 |
 | 2 | Phenotype Library 기반 공개 비교 | studySpecific | 4 |
-| 3 | 내장 preset | studySpecific | 13 |
+| 3 | opioid, ppi, statin | studySpecific | 3 |
 
 공개 비교의 ID, 논문 DOI, Phenotype Library ID, 적용 시 변경 내용은
 [`inst/studies/registry.json`](../inst/studies/registry.json)에 기록함.
@@ -21,7 +21,7 @@ Windows/ODBC 환경에 FederatedPS `dev` 커밋
 
 ## 실행
 
-기존 Windows ODBC 번들에서 FederatedPs를 0.0.13으로 업데이트하고
+기존 Windows ODBC 번들에 CDM 업데이트 v0.0.14를 적용하고
 HIWARE에 로그인한 뒤 실행함.
 
 ```powershell
@@ -39,6 +39,9 @@ CDM 비교만 먼저 확인하려면 두 번째 명령에 `-Family Cdm`을 추�
 
 결과는 `FederatedPS\work\all-studies\<study>\<scenario>\<RunId>`에
 저장함. 각 조합 상태와 경로는 상위 폴더의 `batch-status.csv`에 기록함.
+`batch-timing.csv`는 조합별 경과 시간, 전처리·모델 단계 시간(FitSeconds),
+SMD 시간(SmdSeconds), 기관 동시 실행 수(Workers)를 초 단위로 기록함.
+완료한 결과 재사용 시 FitSeconds는 비워 둠.
 같은 설정으로 재실행하면 성공한 모델 결과를 재사용함. 실패한 조합이
 있어도 뒤의 조합을 실행한 후 배치가 오류를 반환함.
 
@@ -66,7 +69,21 @@ index 이전 날짜로 제한함. 코호트와 코드 집합은 세션 임시 �
 
 첨부된 ppi/default 실측은 199,212명, 총 38분 01초였음. 기관 3개를
 병렬로 준비하는 구간은 16분 44초, 이후 모델 단계는 21분 17초였음.
-동일 처리량으로 환산하면 31개 전부 기관 병렬 시 약 19시간 39분,
-CDM 18개를 기관 순차로 처리하는 배치 기본값에서는 약 23시간 52분임.
-이 값에는 SMD 후처리와 실패 재시도가 포함되지 않으며, 실제
-studySpecific SQL과 기관별 대상자 수에 따라 달라짐.
+같은 처리량으로 단순 환산하면 21개를 모두 기관 병렬로 돌릴 때
+약 13시간 18분, CDM 18개를 기관별 순차로 처리하는 기본값에서는
+약 17시간 32분임. SMD와 재시도는 이 환산값에 포함되지 않음.
+6시간에 21개를 끝내려면 SMD까지 포함해 조합당 평균 17분 9초 이내가
+필요함. YUHS의 실제 studySpecific 적격 환자 수와 코호트 쿼리 시간은
+아직 측정되지 않았음.
+
+실제 속도 확인용으로 아래처럼 CDM과 preset을 일부 먼저 실행할 수 있음.
+같은 작업 폴더와 환자 수 설정으로 전체 실행하면 성공한 적합을 재사용함.
+
+```powershell
+.\RUN.ps1 -Study ohdsi_htn_acei_arb,ppi -CdmExtractionWorkers 3
+.\RUN.ps1 -CdmExtractionWorkers 3
+```
+
+세 기관의 SQL을 동시에 수행하면 DB 병목이 생길 수 있음. 초기 실측에서
+접속 대기나 DB 쿼리 시간이 늘면 `-CdmExtractionWorkers 1`로 실행함.
+환자 수 상한을 건 시험 실행은 표본이 달라져 전체 코호트 실행과 별개임.
