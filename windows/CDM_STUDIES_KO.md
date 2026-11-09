@@ -2,26 +2,26 @@
 
 Windows/ODBC 환경에 FederatedPS `dev` 커밋
 `2cb2ec905f51680b01e692230927e9efccc7a9c0`의 공개 비교 18개를 포함함.
-포함 범위는 dev 등록 목록 전체임. dev에서 유지하는 PS 벤치마크용
-`studySpecific` JSON을 사용하며 원 논문의 치료 효과는 추정하지 않음.
+기본 배치에는 논문 근거가 있는 공개 비교 5개와 내장 preset 3개를 포함함.
+dev의 PS 벤치마크용 `studySpecific` JSON을 사용함.
 
-| 실행 순서 | 목록 | 시나리오 | 조합 수 |
-|---|---|---|---:|
-| 1 | 논문 기반 공개 비교 | studySpecific | 14 |
-| 2 | Phenotype Library 기반 공개 비교 | studySpecific | 4 |
-| 3 | opioid, ppi, statin | studySpecific | 3 |
+| 순서 | 비교 | 논문 근거 |
+|---|---|---|
+| 1 | ACE inhibitor vs thiazide 계열 | Lancet, 2019 |
+| 2 | chlorthalidone vs hydrochlorothiazide | JAMA Internal Medicine, 2020 |
+| 3 | sertraline vs duloxetine | Philosophical Transactions A, 2018 |
+| 4 | levetiracetam vs phenytoin | Epilepsia, 2017 |
+| 5 | alendronate vs raloxifene | Scientific Reports, 2020 |
+| 6–8 | opioid, ppi, statin | FederatedPS preset |
 
-공개 비교의 ID, 논문 DOI, Phenotype Library ID, 적용 시 변경 내용은
-[`inst/studies/registry.json`](../inst/studies/registry.json)에 기록함.
-해당 문헌은 비교의 근거이며 Windows 분석의 사이트 정책과 PS 적합은
-기존 FederatedPS 방식임. UTI 비교 세 개는 dev에서 일부 MedDRA
-제외 seed 부재로 중단된 기록이 있음. YUHS에서 해당 seed를 확인하며
-누락 시 오류를 기록하고 다음 비교를 실행함. YUHS 실제 적격 환자 수와
-모델 완료 여부는 실행 후 확인할 수 있음.
+모두 `studySpecific`으로 실행함. 공개 비교의 ID, DOI, 원 출처에서
+적용 시 바뀐 사항은 [registry](../inst/studies/registry.json)에 기록함.
+고혈압 약제군 비교와 성분 비교, 우울증, 항경련제, 골다공증을 포함함.
+코호트 생성은 PS 평가용이며 YUHS 실제 적격 환자 수는 실행 후 확인함.
 
 ## 실행
 
-기존 Windows ODBC 번들에 CDM 업데이트 v0.0.14를 적용하고
+기존 Windows ODBC 번들에 CDM 업데이트 v0.0.15를 적용하고
 HIWARE에 로그인한 뒤 실행함.
 
 ```powershell
@@ -69,18 +69,17 @@ index 이전 날짜로 제한함. 코호트와 코드 집합은 세션 임시 �
 
 첨부된 ppi/default 실측은 199,212명, 총 38분 01초였음. 기관 3개를
 병렬로 준비하는 구간은 16분 44초, 이후 모델 단계는 21분 17초였음.
-같은 처리량으로 단순 환산하면 21개를 모두 기관 병렬로 돌릴 때
-약 13시간 18분, CDM 18개를 기관별 순차로 처리하는 기본값에서는
-약 17시간 32분임. SMD와 재시도는 이 환산값에 포함되지 않음.
-6시간에 21개를 끝내려면 SMD까지 포함해 조합당 평균 17분 9초 이내가
-필요함. YUHS의 실제 studySpecific 적격 환자 수와 코호트 쿼리 시간은
-아직 측정되지 않았음.
+같은 처리량으로 단순 환산하면 총 8개 전부 기관 병렬 시 약 5시간 4분,
+CDM 5개의 기관을 순차로 처리하는 기본값에서는 약 6시간 15분임.
+두 환산값 모두 SMD와 재시도를 제외함. 6시간을 목표로 하는 경우 CDM의
+기관 동시 실행을 3으로 지정함. 실제 studySpecific의 처리 시간은 아직
+측정되지 않았음.
 
 실제 속도 확인용으로 아래처럼 CDM과 preset을 일부 먼저 실행할 수 있음.
 같은 작업 폴더와 환자 수 설정으로 전체 실행하면 성공한 적합을 재사용함.
 
 ```powershell
-.\RUN.ps1 -Study ohdsi_htn_acei_arb,ppi -CdmExtractionWorkers 3
+.\RUN.ps1 -Study ohdsi_htn_acei_thiazide,ppi -CdmExtractionWorkers 3
 .\RUN.ps1 -CdmExtractionWorkers 3
 ```
 

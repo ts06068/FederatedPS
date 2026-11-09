@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# Run the complete studySpecific catalog against the existing YUHS ODBC setup.
+# Run the selected studySpecific comparisons against the existing YUHS ODBC setup.
 [CmdletBinding()]
 param(
     [ValidateSet('All','Cdm','Preset')][string]$Family='All',

@@ -19,15 +19,20 @@ param(
 $ErrorActionPreference='Stop'
 $project=Split-Path $PSScriptRoot -Parent
 $registry=Get-Content -LiteralPath (Join-Path $project 'inst/studies/registry.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$cdmStudies=@(
+    'ohdsi_htn_acei_thiazide','ohdsi_htn_chlorthalidone_hctz',
+    'ohdsi_depression_sertraline_duloxetine','ohdsi_levetiracetam_phenytoin','ohdsi_alendronate_raloxifene'
+)
 $presets=@('opioid','ppi','statin')
 $plan=@(
     if($Family -ne 'Preset'){
-        $ordered=@($registry | Where-Object sourceType -eq 'ohdsiStudy') +
-            @($registry | Where-Object sourceType -eq 'phenotypeLibrary')
-        if($ordered.Count -ne $registry.Count){throw 'Unknown source type in CDM registry.'}
-        foreach($entry in $ordered){
-            if($entry.study -cnotmatch '^(ohdsi|pl)_[a-z0-9_]+$'){throw 'Invalid CDM study name in registry.'}
-            [pscustomobject]@{Study=$entry.study;Scenario='studySpecific';Source=$entry.sourceType;Workers=$CdmExtractionWorkers}
+        foreach($key in $cdmStudies){
+            $found=@($registry | Where-Object {
+                $_.study -ceq $key -and $_.sourceType -ceq 'ohdsiStudy' -and
+                -not [string]::IsNullOrWhiteSpace($_.doi)
+            })
+            if($found.Count -ne 1){throw "Missing published CDM definition: $key."}
+            [pscustomobject]@{Study=$key;Scenario='studySpecific';Source=$found[0].sourceType;Workers=$CdmExtractionWorkers}
         }
     }
     if($Family -ne 'Cdm'){
